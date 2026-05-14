@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="심의 요청", page_icon="📝", layout="wide")
 st.title("📝 콘텐츠 심의 요청")
@@ -80,6 +81,22 @@ if "last_result" in st.session_state:
 
     st.info(f"📝 {result.get('summary', '')}")
 
+    # 하이라이팅된 원문 표시
+    st.subheader("🔍 위반 문구 하이라이팅")
+    highlighted = result.get("highlighted_content", "")
+    if highlighted:
+        st.components.v1.html(
+            f"""
+            <div style="font-family:'맑은 고딕',sans-serif;">
+                {highlighted}
+            </div>
+            """,
+            height=300,
+            scrolling=True
+        )
+    else:
+        st.text(result.get("content", ""))
+    
     st.subheader("⚠️ 위반 항목")
     tab1, tab2 = st.tabs(["Rule Engine 탐지", "AI 판단"])
 
