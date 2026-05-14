@@ -8,9 +8,69 @@ st.caption("최신 규제 업로드 시 기존 승인 콘텐츠를 자동으로 
 
 API_URL = "http://127.0.0.1:8000"
 
-tab1, tab2 = st.tabs(["📤 규제 변경 업로드", "🔍 소급 위반 탐지"])
+tab1, tab2, tab3 = st.tabs(["📡 실시간 규제 공시", "📤 규제 변경 업로드", "🔍 소급 위반 탐지"])
 
 with tab1:
+    st.subheader("📡 실시간 규제 공시 모니터링")
+    st.caption("금융위원회, 개인정보보호위원회, 금융감독원 공시를 실시간으로 수집합니다")
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info("버튼을 누르면 3개 기관 최신 공시를 즉시 수집합니다")
+    with col2:
+        crawl_btn = st.button(
+            "🔍 지금 바로 수집",
+            type="primary",
+            use_container_width=True,
+            key="btn_crawl"
+        )
+
+    if crawl_btn:
+        with st.spinner("규제 공시 수집 중... (금융위 → 개인정보위 → 금감원)"):
+            try:
+                response = requests.get(f"{API_URL}/crawl-regulations")
+                crawl_result = response.json()
+                st.session_state["crawl_result"] = crawl_result
+            except Exception as e:
+                st.error(f"크롤링 실패: {e}")
+
+    if "crawl_result" in st.session_state:
+        result = st.session_state["crawl_result"]
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("총 수집", f"{result.get('total', 0)}건")
+        with col2:
+            st.metric("🔴 즉시 검토", f"{result.get('high_relevance', 0)}건")
+        with col3:
+            st.metric("🟡 검토 권장", f"{result.get('medium_relevance', 0)}건")
+        with col4:
+            crawled_at = result.get('crawled_at', '')[:16].replace('T', ' ')
+            st.metric("수집 시각", crawled_at)
+
+        st.subheader("📋 수집된 공시 목록")
+        items = result.get("items", [])
+        priority = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+        items_sorted = sorted(items, key=lambda x: priority.get(x.get("relevance", "LOW"), 2))
+
+        for item in items_sorted:
+            relevance = item.get("relevance", "LOW")
+            label = item.get("relevance_label", "")
+            source = item.get("source", "")
+            title = item.get("title", "")
+            date = item.get("date", "")
+            link = item.get("link", "")
+
+            with st.expander(f"{label}  |  [{source}] {title}  ({date})"):
+                st.write(f"**출처:** {source}")
+                st.write(f"**제목:** {title}")
+                st.write(f"**날짜:** {date}")
+                if link:
+                    st.markdown(f"**링크:** [{link}]({link})")
+                if relevance in ["HIGH", "MEDIUM"]:
+                    st.warning("⚠️ 준법심의 관련 가능성 있음 — 내용 확인 후 규제 변경 탭에서 업로드하세요")
+                    
+with tab2:
     st.subheader("신규/변경 규제 업로드")
 
     if "reg_text" not in st.session_state:
@@ -106,7 +166,7 @@ with tab1:
                     st.write(f"**위반 이유:** {review.get('reason', '')}")
                     st.write(f"**권고:** {review.get('recommendation', '')}")
 
-with tab2:
+with tab3:
     st.subheader("기존 승인 콘텐츠 전체 재검토")
     st.caption("현재 적용된 규제 기준으로 기존 승인 콘텐츠를 다시 검토합니다")
 

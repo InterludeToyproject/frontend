@@ -66,14 +66,21 @@ if "last_result" in st.session_state:
     risk_color = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢", "SAFE": "✅"}
     risk_label = {"HIGH": "즉시 수정 필요", "MEDIUM": "검토 필요", "LOW": "모니터링", "SAFE": "승인 가능"}
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("위험도", f"{risk_color.get(risk, '⚪')} {risk}", risk_label.get(risk, ""))
     with col2:
         st.metric("Rule 탐지", f"{len(result.get('rule_violations', []))}건")
     with col3:
-        st.metric("AI 탐지", f"{len(result.get('ai_violations', []))}건")
-
+     st.metric("AI 탐지", f"{len(result.get('ai_violations', []))}건")
+    with col4:
+        confidence = result.get("confidence", 0)
+        verified = result.get("verified", False)
+        st.metric(
+            "AI 신뢰도",
+            f"{int(confidence * 100)}%",
+            "✅ 검증완료" if verified else "⚠️ 재검토"
+        )
     if result.get("pii_detected"):
         st.warning(f"⚠️ 개인정보 {len(result['pii_detected'])}건 탐지 → 자동 마스킹 처리됨")
         for pii in result["pii_detected"]:
