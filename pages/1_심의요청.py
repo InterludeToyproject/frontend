@@ -86,6 +86,18 @@ if "last_result" in st.session_state:
         for pii in result["pii_detected"]:
             st.caption(f"  [{pii['type']}] {pii['original']}")
 
+    # 언어 감지 결과 표시
+    lang_flag = result.get("language_flag", "🌐")
+    lang_name = result.get("language_name", "")
+    detected_lang = result.get("detected_language", "ko")
+    if detected_lang != "ko":
+        st.warning(f"{lang_flag} {lang_name} 콘텐츠 감지 → 한국어로 번역 후 심의 진행")
+        translated = result.get("translated_summary", "")
+        if translated:
+            st.caption(f"📋 번역 요약: {translated}")
+    else:
+        st.success(f"{lang_flag} {lang_name} 콘텐츠")
+
     st.info(f"📝 {result.get('summary', '')}")
 
     # 하이라이팅된 원문 표시
