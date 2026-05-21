@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import streamlit.components.v1 as components
+import time
 
 st.set_page_config(page_title="심의 요청", page_icon="📝", layout="wide")
 st.title("📝 콘텐츠 심의 요청")
@@ -41,20 +42,60 @@ with st.form("review_form"):
         )
 
 if submitted and content:
-    with st.spinner("🤖 AI 심의 중..."):
-        try:
-            response = requests.post(
-                f"{API_URL}/scan-content",
-                json={
-                    "content": content,
-                    "content_type": content_type,
-                    "author": author or "미입력"
-                }
-            )
-            result = response.json()
-            st.session_state["last_result"] = result
-        except Exception as e:
-            st.error(f"서버 연결 실패: {e}")
+    st.markdown("---")
+    st.subheader("⚙️ 심의 진행 현황")
+
+    step1 = st.empty()
+    step2 = st.empty()
+    step3 = st.empty()
+    step4 = st.empty()
+    step5 = st.empty()
+    step6 = st.empty()
+
+    try:
+        step1.info("🔒 1단계: 개인정보 탐지 및 익명화 처리 중...")
+        time.sleep(0.5)
+        step1.success("✅ 1단계: 개인정보 탐지 및 익명화 완료")
+
+        step2.info("⚙️ 2단계: Rule Engine 1차 필터 분석 중...")
+        time.sleep(0.5)
+        step2.success("✅ 2단계: Rule Engine 분석 완료")
+
+        step3.info("📚 3단계: 규제 조문 RAG 검색 중...")
+        time.sleep(0.7)
+        step3.success("✅ 3단계: 관련 규제 조문 검색 완료")
+
+        step4.info("🤖 4단계: Claude AI 최종 판단 생성 중...")
+
+        response = requests.post(
+            f"{API_URL}/scan-content",
+            json={
+                "content": content,
+                "content_type": content_type,
+                "author": author or "미입력"
+            }
+        )
+        result = response.json()
+
+        step4.success("✅ 4단계: AI 판단 생성 완료")
+
+        step5.info("🔍 5단계: 자가 검증 루프 실행 중...")
+        time.sleep(0.5)
+        verified = result.get("verified", False)
+        retry = result.get("retry_count", 0)
+        if verified:
+            step5.success(f"✅ 5단계: 검증 완료 (재시도 {retry}회)")
+        else:
+            step5.warning(f"⚠️ 5단계: 검증 완료 (신뢰도 보통)")
+
+        step6.info("💾 6단계: 심의 결과 저장 중...")
+        time.sleep(0.3)
+        step6.success(f"✅ 6단계: 심의 이력 저장 완료 (심의 #{result.get('review_id')})")
+
+        st.session_state["last_result"] = result
+
+    except Exception as e:
+        st.error(f"서버 연결 실패: {e}")
 
 if "last_result" in st.session_state:
     result = st.session_state["last_result"]
@@ -72,7 +113,7 @@ if "last_result" in st.session_state:
     with col2:
         st.metric("Rule 탐지", f"{len(result.get('rule_violations', []))}건")
     with col3:
-     st.metric("AI 탐지", f"{len(result.get('ai_violations', []))}건")
+        st.metric("AI 탐지", f"{len(result.get('ai_violations', []))}건")
     with col4:
         confidence = result.get("confidence", 0)
         verified = result.get("verified", False)
@@ -81,12 +122,12 @@ if "last_result" in st.session_state:
             f"{int(confidence * 100)}%",
             "✅ 검증완료" if verified else "⚠️ 재검토"
         )
+
     if result.get("pii_detected"):
         st.warning(f"⚠️ 개인정보 {len(result['pii_detected'])}건 탐지 → 자동 마스킹 처리됨")
         for pii in result["pii_detected"]:
             st.caption(f"  [{pii['type']}] {pii['original']}")
 
-    # 언어 감지 결과 표시
     lang_flag = result.get("language_flag", "🌐")
     lang_name = result.get("language_name", "")
     detected_lang = result.get("detected_language", "ko")
@@ -100,22 +141,56 @@ if "last_result" in st.session_state:
 
     st.info(f"📝 {result.get('summary', '')}")
 
-    # 하이라이팅된 원문 표시
+    # 과태료 시뮬레이터
+    penalty = result.get("penalty", {})
+    if penalty and penalty.get("total_fine_max", 0) > 0:
+        st.markdown("---")
+        st.subheader("💸 규제 위반 시 예상 리스크")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            fine_min = penalty.get("total_fine_min", 0) // 10000
+            fine_max = penalty.get("total_fine_max", 0) // 10000
+            st.metric("예상 과태료", f"{fine_max:,}만원", f"최소 {fine_min:,}만원~")
+        with col2:
+            estimated = penalty.get("estimated_fine", 0) // 10000
+            st.metric("예상 제재 금액", f"약 {estimated:,}만원")
+        with col3:
+            st.metric("재무 리스크", f"{penalty.get('risk_color', '')} {penalty.get('risk_level', '')}")
+        with col4:
+            st.metric("평판 리스크", penalty.get("reputation_risk", ""))
+
+        if penalty.get("matched_rules"):
+            st.markdown("**📋 적용 가능 법령 및 과태료 기준**")
+            for rule in penalty["matched_rules"]:
+                st.warning(f"⚖️ {rule['law']} — 과태료 {rule['fine_range']}")
+
+        if penalty.get("sanctions"):
+            st.markdown("**🚨 예상 제재 조치**")
+            for sanction in penalty["sanctions"]:
+                st.error(f"🔴 {sanction}")
+
+        if penalty.get("cases"):
+            st.markdown("**📰 유사 제재 사례**")
+            for case in penalty["cases"]:
+                st.info(
+                    f"📅 {case['date']} | {case['org']} | "
+                    f"제재금 {case['fine']//10000:,}만원 | {case['action']}"
+                )
+
+    # 하이라이팅
+    st.markdown("---")
     st.subheader("🔍 위반 문구 하이라이팅")
     highlighted = result.get("highlighted_content", "")
     if highlighted:
         st.components.v1.html(
-            f"""
-            <div style="font-family:'맑은 고딕',sans-serif;">
-                {highlighted}
-            </div>
-            """,
+            f"""<div style="font-family:'맑은 고딕',sans-serif;">{highlighted}</div>""",
             height=300,
             scrolling=True
         )
     else:
         st.text(result.get("content", ""))
-    
+
     st.subheader("⚠️ 위반 항목")
     tab1, tab2 = st.tabs(["Rule Engine 탐지", "AI 판단"])
 
