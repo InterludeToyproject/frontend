@@ -136,6 +136,17 @@ if "last_result" in st.session_state:
             f"{int(confidence * 100)}%",
             "✅ 검증완료" if verified else "⚠️ 재검토"
         )
+        # 환각 탐지 결과
+        hallucination = result.get("hallucination_summary", {})
+        if hallucination.get("total", 0) > 0:
+            h_risk = hallucination.get("hallucination_risk", "LOW")
+            h_color = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
+            verified = hallucination.get("verified", 0)
+            total = hallucination.get("total", 0)
+            st.info(
+                f"🔍 조문 검증: {h_color.get(h_risk)} "
+                f"{verified}/{total}개 확인 — {hallucination.get('note', '')}"
+            )
 
     if result.get("pii_detected"):
         st.warning(f"⚠️ 개인정보 {len(result['pii_detected'])}건 탐지 → 자동 마스킹 처리됨")
@@ -219,9 +230,18 @@ if "last_result" in st.session_state:
         if ai_violations:
             for v in ai_violations:
                 severity_color = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
-                with st.expander(f"{severity_color.get(v.get('severity',''), '⚪')} [{v.get('severity','')}] {v.get('type','')}"):
+                law_note = v.get("law_note", "")
+                with st.expander(
+                    f"{severity_color.get(v.get('severity',''), '⚪')} "
+                    f"[{v.get('severity','')}] {v.get('type','')} "
+                    f"| {law_note}"
+                ):
                     st.write(f"**탐지 문구:** {v.get('flagged_text', '')}")
                     st.write(f"**근거 법령:** {v.get('law_reference', '')}")
+                    if v.get("law_verified"):
+                        st.success(f"✅ 조문 검증됨 — {v.get('law_found_content', '')[:80]}...")
+                    else:
+                        st.warning(f"⚠️ {law_note} — 조문 직접 확인 권장")
         else:
             st.success("AI 탐지 없음")
 
