@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import streamlit.components.v1 as components
 import time
+from datetime import datetime
 
 st.set_page_config(page_title="심의 요청", page_icon="📝", layout="wide")
 st.title("📝 콘텐츠 심의 요청")
@@ -100,6 +101,19 @@ if submitted and content:
 if "last_result" in st.session_state:
     result = st.session_state["last_result"]
 
+    # 보안 차단 처리
+    if result.get("blocked"):
+        st.markdown("---")
+        st.error("🚨 보안 위협 탐지 — 심의 요청 차단됨")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("위협 수준", f"🔴 {result.get('threat_level')}")
+        with col2:
+            st.metric("처리 결과", "🚫 차단")
+        st.warning(f"**차단 사유:** {result.get('block_reason')}")
+        st.info("보안 이벤트가 로그에 기록되었습니다. 대시보드에서 확인하세요.")
+        st.stop()
+
     st.markdown("---")
     st.subheader("📊 심의 결과")
 
@@ -170,13 +184,8 @@ if "last_result" in st.session_state:
             for sanction in penalty["sanctions"]:
                 st.error(f"🔴 {sanction}")
 
-        if penalty.get("cases"):
-            st.markdown("**📰 유사 제재 사례**")
-            for case in penalty["cases"]:
-                st.info(
-                    f"📅 {case['date']} | {case['org']} | "
-                    f"제재금 {case['fine']//10000:,}만원 | {case['action']}"
-                )
+        st.markdown("**📰 유사 금감원 제재 사례**")
+        st.info("🔧 본선 고도화 예정 — 금감원 보도자료 기반 마케팅 위반 제재 사례 DB 구축 + 실시간 크롤링 연동")
 
     # 하이라이팅
     st.markdown("---")
@@ -216,9 +225,57 @@ if "last_result" in st.session_state:
         else:
             st.success("AI 탐지 없음")
 
-    st.subheader("💡 수정 제안")
+    # 수정 제안 및 수정본
+    st.subheader("💡 수정 제안 및 수정본")
     for i, suggestion in enumerate(result.get("suggestions", []), 1):
         st.write(f"{i}. {suggestion}")
+
+    st.markdown("---")
+
+    if result.get("overall_risk") not in ["SAFE"] and result.get("review_id"):
+        if st.button("✏️ AI 수정본 생성", type="primary", key="btn_correction"):
+            with st.spinner("수정본 생성 중..."):
+                try:
+                    resp = requests.post(
+                        f"{API_URL}/generate-correction",
+                        json={
+                            "review_id": result.get("review_id"),
+                            "content": result.get("content", "")
+                        }
+                    )
+                    correction = resp.json()
+                    st.session_state["corrected_content"] = correction.get("corrected_content", "")
+                except Exception as e:
+                    st.error(f"수정본 생성 실패: {e}")
+
+    if "corrected_content" in st.session_state and st.session_state["corrected_content"]:
+        corrected = st.session_state["corrected_content"]
+        tab_compare, tab_corrected = st.tabs(["🔄 원본 vs 수정본", "✅ 수정본"])
+
+        with tab_compare:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**❌ 원본 (위반)**")
+                st.markdown(
+                    f"""<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:8px;padding:15px;font-size:14px;line-height:1.8;white-space:pre-wrap;font-family:'맑은 고딕',sans-serif;">{result.get("content", "")}</div>""",
+                    unsafe_allow_html=True
+                )
+            with col2:
+                st.markdown("**✅ 수정본 (준법)**")
+                st.markdown(
+                    f"""<div style="background:#f0fff0;border:1px solid #ccffcc;border-radius:8px;padding:15px;font-size:14px;line-height:1.8;white-space:pre-wrap;font-family:'맑은 고딕',sans-serif;">{corrected}</div>""",
+                    unsafe_allow_html=True
+                )
+
+        with tab_corrected:
+            st.success("아래 수정본을 복사하여 사용하세요")
+            st.text_area("수정본", value=corrected, height=200, key="corrected_textarea")
+            st.download_button(
+                label="📥 수정본 다운로드",
+                data=corrected,
+                file_name=f"수정본_{result.get('review_id')}.txt",
+                mime="text/plain"
+            )
 
     with st.expander("📚 참조 법령 조문"):
         for ref in result.get("rag_references", []):
@@ -238,23 +295,49 @@ if "last_result" in st.session_state:
         st.write("")
         if st.button("✅ 승인", use_container_width=True, type="primary", key="btn_approve"):
             if reviewer:
-                requests.post(f"{API_URL}/approve", json={
-                    "review_id": review_id,
-                    "action": "approve",
-                    "reviewer": reviewer,
-                    "comment": comment
-                })
-                st.success("승인 완료")
+                with st.spinner("📄 승인 레포트 생성 중..."):
+                    resp = requests.post(f"{API_URL}/approve", json={
+                        "review_id": review_id,
+                        "action": "approve",
+                        "reviewer": reviewer,
+                        "comment": comment
+                    })
+                    approve_result = resp.json()
+                st.success("✅ 승인 완료")
+                st.session_state["last_report"] = approve_result.get("report", "")
+                st.session_state["last_action"] = "approve"
             else:
                 st.warning("심의자 이름을 입력하세요")
+
         if st.button("❌ 반려", use_container_width=True, key="btn_reject"):
             if reviewer:
-                requests.post(f"{API_URL}/approve", json={
-                    "review_id": review_id,
-                    "action": "reject",
-                    "reviewer": reviewer,
-                    "comment": comment
-                })
-                st.error("반려 처리 완료")
+                with st.spinner("📄 반려 레포트 및 수정 가이드 생성 중..."):
+                    resp = requests.post(f"{API_URL}/approve", json={
+                        "review_id": review_id,
+                        "action": "reject",
+                        "reviewer": reviewer,
+                        "comment": comment
+                    })
+                    reject_result = resp.json()
+                st.error("❌ 반려 처리 완료")
+                st.session_state["last_report"] = reject_result.get("report", "")
+                st.session_state["last_action"] = "reject"
             else:
                 st.warning("심의자 이름을 입력하세요")
+
+    if "last_report" in st.session_state and st.session_state["last_report"]:
+        st.markdown("---")
+        action = st.session_state.get("last_action", "")
+        if action == "approve":
+            st.subheader("📄 준법심의 승인 레포트")
+        else:
+            st.subheader("📄 준법심의 반려 레포트 + 수정 가이드")
+
+        st.markdown(st.session_state["last_report"])
+
+        st.download_button(
+            label="📥 레포트 다운로드 (.txt)",
+            data=st.session_state["last_report"],
+            file_name=f"심의레포트_{review_id}_{datetime.now().strftime('%Y%m%d%H%M')}.txt",
+            mime="text/plain"
+        )
